@@ -219,7 +219,7 @@ function Empty({ run, onReady }: { go: (href: string) => void; run: (action: () 
           onReady(demo.workspace.id);
         })}>Create a labeled demo</Button>
         <h2 className="mt-6 text-2xl">Main bot demo</h2>
-        <p className="mt-2 text-sm text-[var(--muted)]">A simulated main bot delegates to a Software Engineer project. The project opens Chrome with its own profile. The page will say local browser, not isolated VM.</p>
+        <p className="mt-2 text-sm text-[var(--muted)]">A simulated main bot delegates to a Software Engineer project. If Docker is running, the project opens a container desktop. Otherwise it opens Chrome and says local browser, not isolated VM.</p>
         <Button className="mt-4" type="button" disabled={busy} onClick={() => {
           setBusy(true);
           void run(async () => {
@@ -572,8 +572,14 @@ function ProjectView({ snapshot, id, go, run, refresh }: { snapshot: Snapshot; i
       <p>{project.summary || "No summary."}</p>
       {project.goal && <p>Goal: {project.goal}</p>}
       <p className="text-sm">{project.workspaceLabel || "Workspace not opened."}</p>
+      {project.workspaceKind === "container" && project.workspaceEndpoint && (
+        <div className="space-y-2">
+          <iframe title="Container desktop" src={project.workspaceEndpoint} className="h-[520px] w-full rounded-2xl border border-[var(--line)] bg-black" />
+          <a className="underline" href={project.workspaceEndpoint}>Open the container desktop</a>
+        </div>
+      )}
       {project.hasFrame && (
-        <img alt="Capture from the local browser profile, not an isolated VM" className="max-w-full rounded-2xl border border-[var(--line)]" src={`/api/projects/${project.id}/workspace/frame?t=${project.updatedAt ?? ""}`} />
+        <img alt={project.workspaceKind === "container" ? "Capture from the container browser" : "Capture from the local browser profile, not an isolated VM"} className="max-w-full rounded-2xl border border-[var(--line)]" src={`/api/projects/${project.id}/workspace/frame?t=${project.updatedAt}`} />
       )}
       {snapshot.mainBots[0] && (
         <DelegateForm snapshot={snapshot} projectId={project.id} run={run} refresh={refresh} />
@@ -642,7 +648,7 @@ function TaskView({ snapshot, id, go, run, refresh }: { snapshot: Snapshot; id: 
       {task.resultBody && (
         <section className="rounded-3xl border border-[var(--line)] bg-[var(--paper)] p-4">
           <h2 className="text-2xl">Result</h2>
-          <p className="text-sm">Label: {task.resultLabel}. {task.resultLabel === "local_browser" ? "This is a local browser, not an isolated VM. " : ""}Untrusted text. It cannot change who is signed in.</p>
+          <p className="text-sm">Label: {task.resultLabel}. {task.resultLabel === "local_browser" ? "This is a local browser, not an isolated VM. " : ""}{task.resultLabel === "container" ? "This ran in a container desktop, not a Duet or dot computer. " : ""}Untrusted text. It cannot change who is signed in.</p>
           <pre className="mt-2 whitespace-pre-wrap font-sans">{task.resultBody}</pre>
         </section>
       )}

@@ -144,6 +144,7 @@ export function openDatabase(file: string): DatabaseSync {
   ensureColumn(db, "projects", "workspace_label", "workspace_label TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "projects", "workspace_endpoint", "workspace_endpoint TEXT");
   ensureColumn(db, "projects", "frame_path", "frame_path TEXT");
+  ensureColumn(db, "projects", "container_name", "container_name TEXT");
   return db;
 }
 

@@ -12,13 +12,11 @@ fi
 
 npm install
 
-if [[ ! -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" && ! -x "/usr/local/bin/google-chrome" && ! -x "/usr/bin/google-chrome" && -z "${ROSTER_LAB_CHROME:-}" ]]; then
-  echo "Google Chrome was not found. Install it, or set ROSTER_LAB_CHROME to the browser binary."
-  exit 1
-fi
-
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-  echo "Docker is running. This build still opens a local Chrome profile. A container desktop was not verified in the session that wrote this script."
+  echo "Docker is running. The demo will open a container desktop."
+elif [[ ! -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" && ! -x "/usr/local/bin/google-chrome" && ! -x "/usr/bin/google-chrome" && -z "${ROSTER_LAB_CHROME:-}" ]]; then
+  echo "Docker is not running and Google Chrome was not found. Install Docker Desktop or Chrome, or set ROSTER_LAB_CHROME."
+  exit 1
 else
   echo "Docker is not running. The workspace will be a local browser profile, not an isolated VM."
 fi

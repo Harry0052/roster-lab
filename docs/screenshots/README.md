@@ -8,5 +8,6 @@ Taken in this session on 2026-11-20 with Playwright against the local dev server
 - `roster-project.png` — the Software Engineer project after Harry’s main-bot change. The embedded picture is a Chrome capture. The label on the page is `local browser, not isolated VM`.
 - `roster-browser-capture.png` — that Chrome capture by itself.
 - `roster-task-audit.png` — the delegated task’s timeline: delegated by the simulated main bot, browser opened, completed.
+- `roster-container-dashboard.png` — the Software Engineer project with the container desktop embedded through noVNC. Chromium inside the container shows the task. Taken 2026-11-20 after Docker was installed.
 
 This was a Linux browser in the build environment, not a physical Mac or phone. Docker was not installed, so no container desktop is in these pictures.

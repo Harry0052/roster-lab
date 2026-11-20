@@ -23,7 +23,19 @@ node --experimental-sqlite --import tsx --test tests/*.test.ts
 
 The new test launched Chrome, wrote `note.txt`, saved a PNG larger than 1000 bytes, and checked the audit lines and the profile marker. `dockerAvailable()` was false in that test.
 
-`npx tsc --noEmit` and `npx biome check src tests scripts` exited 0. Biome printed a deprecation notice about the `recommended` field and did not fail.
+`npm test` on 2026-11-20 after Docker and the MCP stdio server: **11 passed, 0 failed**. That includes the two-container test, the local-browser test, and the MCP SDK client test. `npx tsc --noEmit` exited 0. `npx biome check src tests scripts` exited 0 with a deprecation notice and one warning about `innerText`.
+
+Playwright on `http://127.0.0.1:4318/projects/pr_3e1ed64f4105a6426aa390fd` showed the label **container desktop**, an embedded noVNC frame of Chromium inside the container displaying the task, and the task **Completed**. Screenshot: `docs/screenshots/roster-container-dashboard.png`.
+
+GitHub: `gh auth status` said the CLI is not logged in. There is no GitHub token in the environment. The GitHub App connection could not see `Harry0052/roster-lab` (not granted, private, or not created) and this session has no tool that creates a repository. The private repo was not created and history was not pushed to GitHub.
+
+Container test, after `apt-get install docker.io` and starting `dockerd`:
+
+```
+node --experimental-sqlite --import tsx --test tests/container.test.ts tests/mcp-client.test.ts tests/workspace.test.ts
+```
+
+Observed before the full-suite re-run: the two-container test passed, the local-browser tests passed, and the MCP SDK stdio test passed after the server was changed to newline JSON (the SDK 1.22 client does not use Content-Length framing).
 
 Browser, Playwright, 2026-11-20, `http://127.0.0.1:4318`, after `POST /api/demo/main-bot`:
 

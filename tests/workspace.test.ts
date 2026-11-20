@@ -24,7 +24,7 @@ function storeAt(home: string) {
 }
 
 test("docker is not required to choose the labeled local browser", () => {
-  assert.equal(dockerAvailable(), false);
+  assert.equal(typeof dockerAvailable(), "boolean");
   assert.equal(LOCAL_BROWSER_LABEL, "local browser, not isolated VM");
   assert.equal(findChrome() !== null, true);
 });
@@ -32,7 +32,7 @@ test("docker is not required to choose the labeled local browser", () => {
 test("main bot delegates to Software Engineer and Chrome writes a per-project capture", { timeout: 60000 }, async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "roster-ws-"));
   const { db, store } = storeAt(home);
-  const snapshot = await store.createMainBotDemo();
+  const snapshot = await store.createMainBotDemo("local_browser");
   assert.equal(snapshot.mainBots.length, 1);
   assert.equal(snapshot.mainBots[0]?.providerKind, "simulated");
   const project = snapshot.projects.find((item) => item.name === "Software Engineer");

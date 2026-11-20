@@ -4,9 +4,11 @@ Checked 2026-11-20. Harry asked for a per-project computer, with a local-browser
 
 ## What this machine could run
 
-`docker` was not on `PATH`. `/var/run/docker.sock` was absent. No container was started. That is why the demo uses the fallback.
+Docker Engine 29.1.3 from Ubuntu’s `docker.io` package was installed in this session and `docker info` succeeded. The first check, before that install, had no `docker` binary and no socket.
 
-Google Chrome at `/usr/local/bin/google-chrome` did start. `playwright-core` 1.49.1 (Apache-2.0, read from its `package.json` in this install) drives one persistent profile directory per project and saves a PNG. The label stored on the project is `local browser, not isolated VM`.
+When Docker is available, `open_workspace` builds `roster-lab-desktop:local` from `docker/desktop` if needed and starts one container per project. The image is Debian Bookworm with Xvfb, Openbox, Chromium, x11vnc, and Debian’s noVNC plus websockify. noVNC is MPL-2.0 and is installed as the Debian package. Roster Lab does not vendor or modify the noVNC source. Chromium’s DevTools port is forwarded with `socat` because current Chromium binds it to 127.0.0.1. Playwright on the host connects with `connectOverCDP`, opens `file:///work/index.html`, reads the page text, and saves a PNG. The container keeps running so the dashboard can embed `vnc.html`. Published ports are bound to `127.0.0.1` only.
+
+Google Chrome at `/usr/local/bin/google-chrome` is the fallback when `docker info` fails, or when a caller passes `local_browser`. `playwright-core` 1.49.1 (Apache-2.0, read from this install’s `package.json`) drives one persistent profile directory per project. That label is `local browser, not isolated VM`.
 
 ## Candidates
 

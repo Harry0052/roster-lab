@@ -13,7 +13,10 @@ Original Roster Lab code is MIT, copyright Harry Malhi. The packages below are i
 | tsx | Run TypeScript | MIT |
 | @biomejs/biome | Lint | MIT OR Apache-2.0 |
 | @types/react, @types/react-dom, @types/node | Types | MIT |
-| playwright-core 1.49.1 | Local Chrome profiles and screenshots | Apache-2.0, from this install’s package.json |
+| playwright-core 1.49.1 | Local Chrome profiles, and CDP against a container browser | Apache-2.0, from this install’s package.json |
+| @modelcontextprotocol/sdk 1.22.0 | Dev-only MCP client used by tests | MIT, from `npm view` on 2026-11-20 |
+
+The desktop image installs Debian packages and does not copy their source into this repository: Xvfb, Openbox (GPL-2.0), x11vnc (GPL-2.0), Chromium, socat, and noVNC (MPL-2.0) with websockify. noVNC is not vendored or modified.
 
 Node.js supplies `node:sqlite`. It is part of Node, not an npm dependency. Node 22 marks it experimental.
 

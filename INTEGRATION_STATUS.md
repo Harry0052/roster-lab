@@ -29,7 +29,7 @@ Updated 2026-11-20. “Locally tested” means a test in this repo passed. It do
 - The stored label is `local browser, not isolated VM`.
 - A marker file in one profile directory is not in the other.
 - Main-bot MCP tools `list_projects` and `get_task_status` were called from the test. `open_workspace` is the same function as the tested browser run.
-- `docker info` was not available. No container was started.
+- After Docker Engine 29.1.3 was installed, two projects each got a running container. Playwright read different page text over CDP. A file written into one project volume was not readable in the other container. noVNC answered HTTP 200 on the published localhost port during the earlier smoke check.
 
 ## Live-account-tested
 

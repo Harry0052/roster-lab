@@ -21,13 +21,23 @@ A simulated person is a row in the database and a function in this process. Ther
 
 ## One command
 
-Google Chrome is required. Docker Desktop is optional and is not used for the workspace that was tested here. Node.js 22.13 or newer:
+Node.js 22.13 or newer. Docker is used when `docker info` works. Google Chrome is the fallback.
 
 ```bash
 bash scripts/setup.sh
 ```
 
-Then open [http://127.0.0.1:4318](http://127.0.0.1:4318) and choose **Main bot demo**. The Software Engineer project should already show a completed task and a browser capture labeled **local browser, not isolated VM**.
+Then open [http://127.0.0.1:4318](http://127.0.0.1:4318) and choose **Main bot demo**. With Docker, the Software Engineer project embeds a container desktop from noVNC and is labeled **container desktop**. Without Docker, the label is **local browser, not isolated VM**. The first container start builds `roster-lab-desktop:local`, which can take a few minutes.
+
+Connect an external agent with the stdio MCP server. Put the bearer only in the environment, not in git:
+
+```bash
+ROSTER_LAB_HOME="$HOME/Library/Application Support/roster-lab" \
+ROSTER_LAB_TOKEN="the token shown once in the app" \
+node --experimental-sqlite --import tsx scripts/mcp-stdio.ts
+```
+
+HTTP is `POST http://127.0.0.1:4317/mcp` with `Authorization: Bearer` and one JSON-RPC message. That was tested with the app's own client. The official MCP SDK 1.22.0 (MIT) was tested against the stdio server.
 
 ## Run on a Mac
 
@@ -74,8 +84,8 @@ The server refuses to listen on anything except localhost unless you set `ROSTER
 | Provider | Status in this build |
 | --- | --- |
 | Simulated main bot | Locally tested. Delegates inside this app. It is not a Duet or a dot. |
-| Project browser profile | Locally tested with Chrome. Labeled local browser, not isolated VM. |
-| Container or VM desktop | Not run. Docker was not installed in the session that built this. |
+| Project browser profile | Locally tested with Chrome when Docker is off. Labeled local browser, not isolated VM. |
+| Container desktop | Locally tested here after installing Docker: two projects, two containers, Playwright over CDP, noVNC embedded. Not a Duet or dot computer. |
 | Simulated employees | Locally tested. Labeled Simulated. |
 | Claude Duet | Not live-tested. No creation, wake, or remote cancel. Custom MCP on Duet itself is unverified. |
 | OpenAI dot | Not live-tested. MCP Events are documented for dots. This server can speak that shape to a test callback. OAuth for the ChatGPT plugin form is not implemented, so a real dot is not connected. |
@@ -86,29 +96,32 @@ After you have an eligible account, the steps that were **not** run are in `docs
 
 ## Screenshots
 
-`docs/screenshots/` has three pictures from the local app on 2026-11-20. They are labeled there.
+`docs/screenshots/` has the local app and, when present, the container desktop. The captions are in that folder's README.
 
 ## Limits
 
 - A role is not an employee computer.
-- Two cards are not two computers.
+- A container desktop is a Linux container on the machine running Roster Lab. It is not a Claude Duet or OpenAI dot computer.
+- Two browser profiles are not two virtual machines. That path is labeled local browser, not isolated VM.
+- noVNC is reachable only on 127.0.0.1. There is no VNC password because the port is not published on other interfaces. Do not change that bind without accepting that the desktop would be exposed.
 - Queueing a task does not wake a Duet.
 - Marking a task failed here does not stop a remote agent.
 - The independent-computer badge appears only after an operator records a full pass, and the badge says this software did not perform the check.
+- The stdio MCP server was tested with `@modelcontextprotocol/sdk` 1.22.0. Duet and dots were not the client.
 
 ## Participate
 
 See `CONTRIBUTING.md`, `SECURITY.md`, and `CODE_OF_CONDUCT.md`. Original code is MIT (`LICENSE`). Third-party packages are listed in `THIRD_PARTY_NOTICES.md`.
 
-`package.json` is `"private": true`, so `npm publish` will refuse. Publishing the source to GitHub is a separate step Harry has not taken.
+`package.json` is `"private": true`, so `npm publish` will refuse.
 
-### When you want a GitHub repository
+### GitHub
 
-From a clone of this project, after you create an empty private repository you control:
+Harry asked for a private repository at `https://github.com/Harry0052/roster-lab`. This environment could not create or push it: the GitHub CLI is not logged in, and the connected GitHub App cannot see that repository. After you create an empty private repository named `roster-lab` under `Harry0052`:
 
 ```bash
-git remote add github git@github.com:YOUR_ACCOUNT/roster-lab.git
+git remote add github git@github.com:Harry0052/roster-lab.git
 git push -u github main
 ```
 
-This session did not create or publish a GitHub repository.
+A `roster-lab.bundle` of this history is saved with the session artifacts when the push cannot be done from here.

@@ -5,7 +5,18 @@ import type { ProviderKind, TaskState } from "../shared/labels.ts";
 import { capabilitiesFor, remoteCancel } from "./capabilities.ts";
 import { transaction } from "./db.ts";
 import { redact, type SecretStore } from "./secrets.ts";
-import { captureInProfile, LOCAL_BROWSER_LABEL, workPage } from "./workspace-runner.ts";
+import {
+  captureInProfile,
+  CONTAINER_LABEL,
+  containerFile,
+  dockerAvailable,
+  driveContainerBrowser,
+  LOCAL_BROWSER_LABEL,
+  startProjectContainer,
+  stopContainer,
+  waitForDevtools,
+  workPage,
+} from "./workspace-runner.ts";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -103,6 +114,10 @@ export class RosterStore {
       .prepare("SELECT secret_id FROM main_bots WHERE workspace_id = ? AND secret_id IS NOT NULL")
       .all(id)
       .map((row) => String(row.secret_id));
+    const containers = this.deps.db
+      .prepare("SELECT container_name FROM projects WHERE workspace_id = ? AND container_name IS NOT NULL")
+      .all(id)
+      .map((row) => String(row.container_name));
     transaction(this.deps.db, () => {
       for (const table of ["attachments", "task_events", "approvals", "tasks", "audit"]) {
         this.deps.db.prepare(`DELETE FROM ${table} WHERE workspace_id = ?`).run(id);
@@ -122,6 +137,7 @@ export class RosterStore {
       this.deps.db.prepare("DELETE FROM workspaces WHERE id = ?").run(id);
     });
     for (const secretId of [...secretIds, ...subSecrets, ...mainSecrets]) this.deps.secrets.delete(secretId);
+    for (const name of containers) stopContainer(name);
     return { deleted: true, approval: null };
   }
 
@@ -216,52 +232,106 @@ export class RosterStore {
     return this.task(task.id);
   }
 
-  async runDelegated(projectId: string, taskId: string) {
+  async runDelegated(projectId: string, taskId: string, runtime: "auto" | "local_browser" | "container" = "auto") {
     const project = this.project(projectId);
     const task = this.task(taskId);
     if (task.projectId !== project.id) throw new DomainError(403, "wrong_project", "That task is not in this project.");
     if (task.state === "completed") return { task, project, alreadyDone: true };
+    const chosen = runtime === "auto" ? (dockerAvailable() ? "container" : "local_browser") : runtime;
     const workDir = path.join(this.deps.dataDir, "project-files", project.id);
-    const profileDir = path.join(this.deps.dataDir, "browser-profiles", project.id);
     const framePath = path.join(this.deps.dataDir, "frames", `${project.id}.png`);
     fs.mkdirSync(workDir, { recursive: true });
+    const banner = chosen === "container" ? CONTAINER_LABEL : LOCAL_BROWSER_LABEL;
     const note = [
       `Project: ${project.name}`,
       `Task: ${task.title}`,
-      "Written by the Roster Lab project runner on this computer.",
-      `${LOCAL_BROWSER_LABEL}.`,
+      "Shown inside this project's own workspace.",
+      `${banner}.`,
       "Not a Claude Duet or OpenAI dot computer.",
     ].join("\n");
     fs.writeFileSync(path.join(workDir, "note.txt"), note);
+    fs.writeFileSync(path.join(workDir, "index.html"), workPage(project.name, task.title, note, banner));
     const now = this.nowIso();
     this.deps.db.prepare("UPDATE tasks SET state = 'in_progress', updated_at = ? WHERE id = ?").run(now, task.id);
-    this.event(task.id, project.workspaceId, "workspace", project.id, task.state, "in_progress", "Opening a local browser profile. This is not an isolated VM.");
+    this.event(
+      task.id,
+      project.workspaceId,
+      "workspace",
+      project.id,
+      task.state,
+      "in_progress",
+      chosen === "container" ? "Starting a container desktop." : "Opening a local browser profile. This is not an isolated VM.",
+    );
     try {
-      await captureInProfile({ profileDir, screenshotPath: framePath, html: workPage(project.name, task.title, note) });
+      if (chosen === "container") await this.finishInContainer(project, task.id, workDir, framePath, note);
+      else {
+        await captureInProfile({
+          profileDir: path.join(this.deps.dataDir, "browser-profiles", project.id),
+          screenshotPath: framePath,
+          html: workPage(project.name, task.title, note, banner),
+        });
+        this.recordWorkspace(project, task.id, {
+          kind: "local_browser",
+          label: LOCAL_BROWSER_LABEL,
+          endpoint: `/api/projects/${project.id}/workspace/frame`,
+          framePath,
+          containerName: null,
+          result: `Completed in a ${LOCAL_BROWSER_LABEL}. The note is in this project's files. The capture is on the project page. No provider computer was used.`,
+          resultLabel: "local_browser",
+        });
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "The browser did not start.";
+      const message = error instanceof Error ? error.message : "The workspace did not start.";
       this.event(task.id, project.workspaceId, "workspace", project.id, "in_progress", "failed", message);
       this.deps.db.prepare("UPDATE tasks SET state = 'failed', updated_at = ? WHERE id = ?").run(this.nowIso(), task.id);
       throw new DomainError(500, "workspace_failed", message);
     }
-    const endpoint = `/api/projects/${project.id}/workspace/frame`;
-    const result = `Completed in a ${LOCAL_BROWSER_LABEL}. The note is in this project's files. The capture is on the project page. No provider computer was used.`;
+    return { task: this.task(task.id), project: this.project(project.id), alreadyDone: false };
+  }
+
+  private async finishInContainer(project: { id: string; name: string; workspaceId: string }, taskId: string, workDir: string, framePath: string, note: string) {
+    const containerName = `rosterlab-${project.id.replaceAll("_", "-")}`;
+    const ports = startProjectContainer(containerName, workDir);
+    await waitForDevtools(ports.cdpPort);
+    const seen = await driveContainerBrowser(ports.cdpPort, "file:///work/index.html", framePath);
+    const taskLine = note.split("\n")[1] ?? "";
+    if (!seen.includes(project.name) || (taskLine && !seen.includes(taskLine.replace("Task: ", "")))) {
+      throw new Error("The container browser did not show this project's task.");
+    }
+    const inside = containerFile(containerName, "/work/note.txt");
+    if (inside === null || !inside.includes(project.name)) {
+      throw new Error("The container filesystem did not contain this project's note.");
+    }
+    const endpoint = `http://127.0.0.1:${ports.novncPort}/vnc_lite.html?autoconnect=1&resize=scale&path=websockify`;
+    this.recordWorkspace(project, taskId, {
+      kind: "container",
+      label: CONTAINER_LABEL,
+      endpoint,
+      framePath,
+      containerName,
+      result: `Completed inside a ${CONTAINER_LABEL}. Playwright connected to the container's Chrome over CDP and read the page. noVNC is at ${endpoint}. This is not a Claude Duet or OpenAI dot computer.`,
+      resultLabel: "container",
+    });
+  }
+
+  private recordWorkspace(
+    project: { id: string; workspaceId: string },
+    taskId: string,
+    input: { kind: string; label: string; endpoint: string; framePath: string; containerName: string | null; result: string; resultLabel: string },
+  ) {
     const finished = this.nowIso();
     transaction(this.deps.db, () => {
       this.deps.db
-        .prepare(
-          `UPDATE tasks SET state = 'completed', result_body = ?, result_label = 'local_browser', result_key = ?, updated_at = ? WHERE id = ?`,
-        )
-        .run(result, `local-${task.id}`, finished, task.id);
+        .prepare(`UPDATE tasks SET state = 'completed', result_body = ?, result_label = ?, result_key = ?, updated_at = ? WHERE id = ?`)
+        .run(input.result, input.resultLabel, `${input.kind}-${taskId}`, finished, taskId);
       this.deps.db
         .prepare(
-          `UPDATE projects SET workspace_kind = 'local_browser', workspace_label = ?, workspace_endpoint = ?, frame_path = ?, updated_at = ? WHERE id = ?`,
+          `UPDATE projects SET workspace_kind = ?, workspace_label = ?, workspace_endpoint = ?, frame_path = ?, container_name = ?, updated_at = ? WHERE id = ?`,
         )
-        .run(LOCAL_BROWSER_LABEL, endpoint, framePath, finished, project.id);
-      this.event(task.id, project.workspaceId, "workspace", project.id, "in_progress", "completed", result);
+        .run(input.kind, input.label, input.endpoint, input.framePath, input.containerName, finished, project.id);
+      this.event(taskId, project.workspaceId, "workspace", project.id, "in_progress", "completed", input.result);
     });
-    this.audit(project.workspaceId, "workspace.opened", `${project.name}: ${LOCAL_BROWSER_LABEL}. Endpoint ${endpoint}.`);
-    return { task: this.task(task.id), project: this.project(project.id), alreadyDone: false };
+    this.audit(project.workspaceId, "workspace.opened", `${project.id}: ${input.label}. Endpoint ${input.endpoint}.`);
   }
 
   framePath(projectId: string): string | null {
@@ -275,7 +345,7 @@ export class RosterStore {
     return resolved;
   }
 
-  async createMainBotDemo() {
+  async createMainBotDemo(runtime: "auto" | "local_browser" | "container" = "auto") {
     const workspace = this.createWorkspace("Main bot demo");
     const bot = this.createMainBot(workspace.id, "Main bot (Simulated)", "simulated");
     const project = this.createProject(workspace.id, "Software Engineer", "Sub-bot that works in its own browser profile.", {
@@ -288,7 +358,7 @@ export class RosterStore {
       "Write the workspace note",
       "Write note.txt and show it in the Software Engineer browser profile.",
     );
-    await this.runDelegated(project.id, task.id);
+    await this.runDelegated(project.id, task.id, runtime);
     return this.snapshot(workspace.id);
   }
 
