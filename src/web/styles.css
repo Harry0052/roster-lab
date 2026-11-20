@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f3efe6;
+  --paper: #fffaf3;
+  --ink: #1d1915;
+  --muted: #5c554c;
+  --line: #e2d9cb;
+  --stamp: #6f2e24;
+  --stamp-ink: #fff8f4;
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(111, 46, 36, 0.06), transparent 28rem),
+    var(--bg);
+  color: var(--ink);
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+h1, h2, h3, .wordmark {
+  font-family: Palatino, "Palatino Linotype", "Iowan Old Style", Georgia, serif;
+  letter-spacing: -0.03em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.skip {
+  position: absolute;
+  left: -999px;
+  background: var(--ink);
+  color: white;
+  padding: 0.5rem 0.8rem;
+}
+
+.skip:focus {
+  position: static;
+  display: inline-block;
+  margin: 0.75rem 1rem 0;
+}

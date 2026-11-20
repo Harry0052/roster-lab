@@ -1,49 +1,111 @@
 # Progress
 
-Status date: 2026-11-20.
+Updated 2026-11-20. Commands were run in this Linux environment. Node v22.23.4. No paid API key. No Duet or dot account.
 
-## Hard stop before Phase 0
+## Phase 0 — Research and architecture
 
-No phase has been implemented, simulated, or tested. The master instructions were not read, because the attached blueprint was not on disk and was not found in the owner's connected sources.
+Decision: fresh project. `Roster_Lab_Prototype.zip` was not supplied.
 
-The run title is "Roster Lab: AI employee platform build". That title is not a specification. No product behavior was inferred from it.
+Evidence: `docs/provider-feasibility.md` (pages fetched 2026-11-20). Architecture: `docs/architecture.md` and `docs/adr/0001-local-core.md`.
 
-## Where the blueprint was looked for
+Blockers are recorded there. No “unlimited agents” claim.
 
-The task named these paths:
+Gate: met as documentation. Research was not a live provider test.
 
-- `/workspace/uploads/AI_Employee_Platform_Grok_Build_Blueprint_0762.md`
-- `uploads/AI_Employee_Platform_Grok_Build_Blueprint.md`
+## Phase 1 — Local app
 
-Observed:
+Stack: React, Vite, Node 22, `node:sqlite`.
 
-- `/workspace` does not exist on this machine. It was checked at the start of the session and again after a short wait.
-- A filesystem search for `AI_Employee*` and `*Build_Blueprint*` returned no file.
-- Google Drive: no file titled with the blueprint name, no hit for "Roster Lab", and no body-text hit for "Claude Duet", "OpenAI dots", or "AI Employee Platform". Files modified since 2026-11-19 are unrelated (a CPG assessment, an outreach tracker, a class deck, and a resume note).
-- Notion: no page for the blueprint title, and no page for "Claude Duet" or "OpenAI dots".
-- Slack: no message or file for "AI Employee Platform" plus "blueprint".
-- GitHub (`Harry0052`): code search for Roster, "AI employee", and "employee platform" returned no indexed hits.
-- Origin namespace `harry-malhi`: no repository whose name contains "roster". The repositories listed there are the Malhi care sites.
+Browser, Playwright, 2026-11-20, against `http://127.0.0.1:4318`:
 
-## Completed and tested
+- Empty state, created company “North Office”.
+- Added project “Office move” and task “Write the brief”.
+- Added person “Simulated research”, allowed the project, set provider Simulated. The page said “Simulated harness… Not a Duet or dot computer.”
+- Assigned, ran the simulated step. Result label `simulated`, text begins `SIMULATED`.
+- Reloaded the task. Still completed.
+- Restarted the dev server with the same `ROSTER_LAB_HOME`. The API still listed “North Office”, and the task page still showed Completed at `2026-11-20T00:39:32.991Z`.
+- Settings → “Show an error state” showed “That person is not on this computer.” The browser console recorded the expected 404.
+- Tab from a fresh load focused the “Skip to content” link.
+- Viewports 1280×900 and 390×844. Screenshots in `docs/screenshots/`.
+- Not run on a physical Mac or a physical phone.
 
-Nothing. No application, no provider client, and no test run exists in this repo.
+Gate: met for this Linux machine. Mac remains untested hardware.
 
-## Blocked on real access or on the missing spec
+## Phase 2 — Domain and simulated lifecycle
 
-| Item | State |
-| --- | --- |
-| Master instructions and Phase 0 | Blocked. Blueprint text was not readable. |
-| Later phases | Not started. They depend on the unread phase list. |
-| Simulated Claude Duet client | Not written. |
-| Simulated OpenAI dots client | Not written. |
-| Real Claude Duet calls | Not attempted. |
-| Real OpenAI dots calls | Not attempted. |
-| Acceptance checklist | Unknown. The checklist text was not read, so missing provider features cannot be listed from it. |
-| Blueprint final section (fallback options) | Unknown. It was not read, so no option from that section is stated here. |
+`npm test` on 2026-11-20:
 
-No passwords or tokens were requested or stored. Nothing was spent, published, or deployed.
+```
+node --experimental-sqlite --import tsx --test tests/*.test.ts
+# tests 7
+# pass 7
+# fail 0
+```
 
-## What unblocks the build
+Node printed `ExperimentalWarning: SQLite is an experimental feature`.
 
-Reattach `AI_Employee_Platform_Grok_Build_Blueprint.md` so this session can read it. Phase 0 starts only after that file is read. Phases will be implemented in order, tested, and split in this file between completed work and work still blocked on a real provider.
+Covered: two simulated people, separate task states, reopen of the sqlite file, duplicate simulated completion, cross-company assignment rejected.
+
+Gate: met. The test output says simulation, not two provider computers.
+
+## Phase 3 — Connector foundation
+
+Same test run: CSRF 403 without the header, export JSON did not contain the bearer, second bearer cannot list or claim the first task, revoked bearer HTTP 401, local MCP event subscription delivered to 127.0.0.1 and the note says it is not a live dot, `http://example.com` callback refused.
+
+Gate: met for the local test client. Not described as Duet or dot success.
+
+## Phase 4 — Claude Duet
+
+Adapter flags are in the UI and `GET /api/capabilities`. Wake and remote cancel are unsupported. Custom MCP on Duet itself is unknown. Real-account script: `docs/real-account-tests.md`, actual result **not run**.
+
+Gate: local contract tests passed. Live connection and multi-computer checks are **not live-tested**.
+
+## Phase 5 — OpenAI dots
+
+Separate adapter. MCP Events methods exist and were tested against a local callback. OAuth for the ChatGPT plugin form is not implemented. dots-bridge is documented, not depended on. Simulated results are refused on a dot or Duet task (`POST /simulate` returned 400 in the test).
+
+Gate: local tests passed. Live dot behavior is **not live-tested**.
+
+## Phase 6 — Approvals and control
+
+Test: a purchase request stays unperformed; deny says nothing was sent, spent, published, or deleted; deciding again is rejected. The settings page says the switches do not stop a provider acting in its own apps. Result text is shown as untrusted. Tool calls ignore a name inside the arguments and use the bearer.
+
+Gate: met for actions this app mediates.
+
+## Phase 7 — Quality and open-source files
+
+Also run on 2026-11-20, after the last source edits, before this file was committed:
+
+- `npx tsc --noEmit` — exit 0 (see the commit that includes this note; re-run if you change code).
+- `npx biome check src tests scripts` — exit 0, with a deprecation notice about the `recommended` field.
+- `npm test` — 7 passed, 0 failed.
+
+`LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `THIRD_PARTY_NOTICES.md`, and `.github/workflows/ci.yml` are in the tree. Nothing was published to GitHub.
+
+## Acceptance checklist
+
+| # | Item | Result | Evidence |
+| --- | --- | --- | --- |
+| 1 | Local setup, no paid model key | PASS on this Linux VM. NOT TESTED on a Mac. | `npm test` 7/7. Dev server on 127.0.0.1:4318. No provider key in the environment. |
+| 2 | Polished UI, keyboard, desktop and mobile browser | PASS for the Playwright session described in Phase 1. | Screenshots. Tab focused “Skip to content”. |
+| 3 | Data survives restart; failures shown | PASS | Server restart kept the completed task. Error button showed the 404 message. |
+| 4 | Simulated provider, never called live | PASS | Result text and `result_label: simulated`. |
+| 5 | Real Duet tested on an eligible account | BLOCKED | No account. Docs do not show a creation or wake API. |
+| 6 | Real dot tested on an eligible account | BLOCKED | No account. OAuth plugin sign-in is not implemented. |
+| 7 | Two real agents, two computers, isolation checks | BLOCKED | Not run. No permitted provisioning API found. |
+| 8 | Each employee bound to its own connection; shared or unverified labeled | PASS for local rows. Live binding BLOCKED. | Bearers are per profile. UI says Not connected or Simulated. Badge test refuses simulation. |
+| 9 | Assign and review through a supported integration | PASS for simulation and the local MCP test client. Real delivery BLOCKED. | Queue does not claim a wake. Cancel says the provider was not stopped. |
+| 10 | Approval, auth, concurrency, credentials, audit | PASS inside this app. | Tests in Phase 3 and Phase 6. |
+| 11 | License, attribution, README, tests, limits | PASS as files. Publication not done. | This repository. |
+
+Overall: **pre-integration build**. Not the complete requested product.
+
+## Assumptions
+
+- Node 22.13+ with built-in SQLite is acceptable on a Mac even though this VM is Linux and the module is marked experimental.
+- A mode `0600` secrets file is the documented alternative to the Keychain.
+- GitHub star counts in the feasibility note are the numbers the GitHub API returned on 2026-11-20, not a judgment.
+
+## Next step when access exists
+
+Run `docs/real-account-tests.md` for one Duet before any dot. Do not record a pass from this file alone.
