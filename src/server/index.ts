@@ -22,6 +22,7 @@ const store = new RosterStore({
   now: () => new Date(),
   allowLoopbackCallbacks: process.env.ROSTER_LAB_ALLOW_LOOPBACK_CALLBACKS === "1",
   fetchImpl: fetch,
+  dataDir: home,
 });
 const distDir = process.env.ROSTER_LAB_SERVE_DIST === "1" ? path.resolve("dist") : null;
 const server = http.createServer(

@@ -30,11 +30,25 @@ type Task = {
   events: Array<{ id: string; actorType: string; note: string; createdAt: string; toState: string }>;
   attachments: Array<{ id: string; filename: string; byteSize: number }>;
 };
-type Project = { id: string; name: string; summary: string; status: string };
+type Project = {
+  id: string;
+  name: string;
+  summary: string;
+  status: string;
+  goal: string;
+  mainBotId: string | null;
+  workspaceKind: string;
+  workspaceLabel: string;
+  workspaceEndpoint: string | null;
+  hasFrame: boolean;
+  updatedAt: string;
+};
+type MainBot = { id: string; displayName: string; providerKind: string; note: string; credentialPrepared: boolean };
 type Approval = { id: string; kind: string; summary: string; status: string; outcome: string | null; expiresAt: string };
 type Activity = { id: string; kind: string; createdAt: string; note?: string; detail?: string; action?: string };
 type Snapshot = {
   workspace: { id: string; name: string; approvals: { send: boolean; purchase: boolean; publish: boolean; deleteData: boolean } };
+  mainBots: MainBot[];
   projects: Project[];
   employees: Employee[];
   tasks: Task[];
@@ -168,10 +182,22 @@ function Banner({ children }: { children: string }) {
 
 function Empty({ run, onReady }: { go: (href: string) => void; run: (action: () => Promise<void>) => Promise<void>; onReady: (id: string) => void }) {
   const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [existing, setExisting] = useState<Array<{ id: string; name: string }>>([]);
+  useEffect(() => {
+    void api<{ workspaces: Array<{ id: string; name: string }> }>("/api/workspaces").then((result) => setExisting(result.workspaces)).catch(() => setExisting([]));
+  }, []);
   return (
     <section className="grid gap-8 md:grid-cols-2">
       <div>
-        <h1 className="text-4xl">No company on this computer yet.</h1>
+        <h1 className="text-4xl">{existing.length ? "Choose a company" : "No company on this computer yet."}</h1>
+        {existing.length > 0 && (
+          <ul className="mt-4 space-y-2">
+            {existing.map((company) => (
+              <li key={company.id}><Button type="button" variant="quiet" onClick={() => onReady(company.id)}>{company.name}</Button></li>
+            ))}
+          </ul>
+        )}
         <p className="mt-3 text-[var(--muted)]">Create a company to keep projects, people, and tasks in a local database. Nothing here calls Claude or OpenAI.</p>
         <form className="mt-6 space-y-3" onSubmit={(event) => {
           event.preventDefault();
@@ -192,6 +218,15 @@ function Empty({ run, onReady }: { go: (href: string) => void; run: (action: () 
           const demo = await api<Snapshot>("/api/demo", { method: "POST", body: "{}" });
           onReady(demo.workspace.id);
         })}>Create a labeled demo</Button>
+        <h2 className="mt-6 text-2xl">Main bot demo</h2>
+        <p className="mt-2 text-sm text-[var(--muted)]">A simulated main bot delegates to a Software Engineer project. The project opens Chrome with its own profile. The page will say local browser, not isolated VM.</p>
+        <Button className="mt-4" type="button" disabled={busy} onClick={() => {
+          setBusy(true);
+          void run(async () => {
+            const demo = await api<Snapshot>("/api/demo/main-bot", { method: "POST", body: "{}" });
+            onReady(demo.workspace.id);
+          }).finally(() => setBusy(false));
+        }}>{busy ? "Opening Chrome…" : "Create main bot and Software Engineer"}</Button>
       </aside>
     </section>
   );
@@ -200,12 +235,59 @@ function Empty({ run, onReady }: { go: (href: string) => void; run: (action: () 
 function Today({ snapshot, go, run, refresh }: { snapshot: Snapshot; go: (href: string) => void; run: (action: () => Promise<void>) => Promise<void>; refresh: () => Promise<void> }) {
   const [projectName, setProjectName] = useState("");
   const open = snapshot.tasks.filter((task) => !["completed", "failed"].includes(task.state));
+  const [botName, setBotName] = useState("Main bot (Simulated)");
+  const [projectNameBot, setProjectNameBot] = useState("Software Engineer");
+  const [goal, setGoal] = useState("Write a note in this project's own browser profile.");
   return (
     <div className="space-y-8">
       <div>
         <p className="text-sm uppercase tracking-wide text-[var(--muted)]">{snapshot.workspace.name}</p>
         <h1 className="text-4xl">Today</h1>
       </div>
+      <section className="rounded-3xl border border-[var(--line)] bg-[var(--paper)] p-5">
+        <h2 className="text-2xl">Main bot</h2>
+        {snapshot.mainBots.length === 0 ? (
+          <form className="mt-3 space-y-2" onSubmit={(event) => {
+            event.preventDefault();
+            void run(async () => {
+              await api(`/api/workspaces/${snapshot.workspace.id}/main-bots`, { method: "POST", body: JSON.stringify({ displayName: botName, providerKind: "simulated" }) });
+              await refresh();
+            });
+          }}>
+            <p className="text-sm text-[var(--muted)]">A simulated main bot can delegate to projects. It is not a Duet or a dot.</p>
+            <Label htmlFor="main-bot">Name</Label>
+            <Input id="main-bot" value={botName} onChange={(event) => setBotName(event.target.value)} required />
+            <Button type="submit">Add simulated main bot</Button>
+          </form>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {snapshot.mainBots.map((bot) => (
+              <li key={bot.id}>
+                <p className="font-semibold">{bot.displayName}</p>
+                <p className="text-sm text-[var(--muted)]">{bot.note}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+        {snapshot.mainBots[0] && (
+          <form className="mt-4 space-y-2" onSubmit={(event) => {
+            event.preventDefault();
+            const bot = snapshot.mainBots[0];
+            if (!bot) return;
+            void run(async () => {
+              await api(`/api/workspaces/${snapshot.workspace.id}/projects`, { method: "POST", body: JSON.stringify({ name: projectNameBot, summary: "Project bot", goal, mainBotId: bot.id }) });
+              setProjectNameBot("");
+              await refresh();
+            });
+          }}>
+            <Label htmlFor="sub-bot">New project bot</Label>
+            <Input id="sub-bot" value={projectNameBot} onChange={(event) => setProjectNameBot(event.target.value)} required />
+            <Label htmlFor="goal">Goal</Label>
+            <Input id="goal" value={goal} onChange={(event) => setGoal(event.target.value)} />
+            <Button type="submit" variant="quiet">Add project bot</Button>
+          </form>
+        )}
+      </section>
       <section>
         <h2 className="text-2xl">Needs you</h2>
         {snapshot.attention.approvals.length + snapshot.attention.unknownTasks.length + snapshot.attention.needsInput.length === 0 ? (
@@ -454,6 +536,30 @@ function Check({ name, label }: { name: string; label: string }) {
   );
 }
 
+function DelegateForm({ snapshot, projectId, run, refresh }: { snapshot: Snapshot; projectId: string; run: (action: () => Promise<void>) => Promise<void>; refresh: () => Promise<void> }) {
+  const [title, setTitle] = useState("Write the workspace note");
+  const [busy, setBusy] = useState(false);
+  const bot = snapshot.mainBots[0];
+  if (!bot) return null;
+  return (
+    <form className="space-y-2" onSubmit={(event) => {
+      event.preventDefault();
+      setBusy(true);
+      void run(async () => {
+        const task = await api<Task>(`/api/main-bots/${bot.id}/delegate`, { method: "POST", body: JSON.stringify({ projectId, title, body: "Show the note in this project's browser profile." }) });
+        await api(`/api/projects/${projectId}/run`, { method: "POST", body: JSON.stringify({ taskId: task.id }) });
+        await refresh();
+      }).finally(() => setBusy(false));
+    }}>
+      <h2 className="text-2xl">Delegate from the main bot</h2>
+      <p className="text-sm text-[var(--muted)]">This stays inside Roster Lab, then opens Chrome for this project only. It does not message a Duet or a dot.</p>
+      <Label htmlFor="delegate-title">Task</Label>
+      <Input id="delegate-title" value={title} onChange={(event) => setTitle(event.target.value)} required />
+      <Button type="submit" disabled={busy}>{busy ? "Opening the browser profile…" : "Delegate and open workspace"}</Button>
+    </form>
+  );
+}
+
 function ProjectView({ snapshot, id, go, run, refresh }: { snapshot: Snapshot; id: string; go: (href: string) => void; run: (action: () => Promise<void>) => Promise<void>; refresh: () => Promise<void> }) {
   const project = snapshot.projects.find((item) => item.id === id);
   const [title, setTitle] = useState("");
@@ -464,6 +570,14 @@ function ProjectView({ snapshot, id, go, run, refresh }: { snapshot: Snapshot; i
     <div className="space-y-6">
       <h1 className="text-4xl">{project.name}</h1>
       <p>{project.summary || "No summary."}</p>
+      {project.goal && <p>Goal: {project.goal}</p>}
+      <p className="text-sm">{project.workspaceLabel || "Workspace not opened."}</p>
+      {project.hasFrame && (
+        <img alt="Capture from the local browser profile, not an isolated VM" className="max-w-full rounded-2xl border border-[var(--line)]" src={`/api/projects/${project.id}/workspace/frame?t=${project.updatedAt ?? ""}`} />
+      )}
+      {snapshot.mainBots[0] && (
+        <DelegateForm snapshot={snapshot} projectId={project.id} run={run} refresh={refresh} />
+      )}
       <ul className="space-y-2">
         {tasks.map((task) => <li key={task.id}><button className="underline" onClick={() => go(`/tasks/${task.id}`)} type="button">{task.title}</button> · {taskLabel(task.state)}</li>)}
       </ul>
@@ -528,7 +642,7 @@ function TaskView({ snapshot, id, go, run, refresh }: { snapshot: Snapshot; id: 
       {task.resultBody && (
         <section className="rounded-3xl border border-[var(--line)] bg-[var(--paper)] p-4">
           <h2 className="text-2xl">Result</h2>
-          <p className="text-sm">Label: {task.resultLabel}. Untrusted text. It cannot change who is signed in.</p>
+          <p className="text-sm">Label: {task.resultLabel}. {task.resultLabel === "local_browser" ? "This is a local browser, not an isolated VM. " : ""}Untrusted text. It cannot change who is signed in.</p>
           <pre className="mt-2 whitespace-pre-wrap font-sans">{task.resultBody}</pre>
         </section>
       )}

@@ -1,6 +1,36 @@
 # Progress
 
-Updated 2026-11-20. Commands were run in this Linux environment. Node v22.23.4. No paid API key. No Duet or dot account.
+Updated 2026-11-20, after Harry’s main-bot decision. Commands were run in this Linux environment. Node v22.23.4. No paid API key. No Duet or dot account.
+
+## Harry’s decision
+
+Recorded in `docs/adr/0002-main-bot-and-project-workspaces.md`. A simulated main bot delegates to project bots. Each project can open a workspace. Docker was not available, so the workspace that was actually opened is a Chrome profile labeled `local browser, not isolated VM`.
+
+## Skip link
+
+The skip link had covered the wordmark when focused. It now sits in the page flow only while focused. Rechecked in Playwright on 2026-11-20: an unfocused desktop screenshot shows the full “Roster Lab” wordmark.
+
+## Main bot demo, observed
+
+`npm test` on 2026-11-20 after the change:
+
+```
+node --experimental-sqlite --import tsx --test tests/*.test.ts
+# tests 9
+# pass 9
+# fail 0
+```
+
+The new test launched Chrome, wrote `note.txt`, saved a PNG larger than 1000 bytes, and checked the audit lines and the profile marker. `dockerAvailable()` was false in that test.
+
+`npx tsc --noEmit` and `npx biome check src tests scripts` exited 0. Biome printed a deprecation notice about the `recommended` field and did not fail.
+
+Browser, Playwright, 2026-11-20, `http://127.0.0.1:4318`, after `POST /api/demo/main-bot`:
+
+- The home page listed “Main bot demo”.
+- The Software Engineer project showed the goal, the label `local browser, not isolated VM`, and the Chrome capture inside the page.
+- The task “Write the workspace note” was Completed. The timeline said the main bot delegated and that no Duet or dot was messaged, then that a local browser profile was opened, then that it completed.
+- Screenshots: `docs/screenshots/roster-project.png`, `roster-task-audit.png`, and `roster-browser-capture.png` (the PNG Chrome wrote).
 
 ## Phase 0 — Research and architecture
 

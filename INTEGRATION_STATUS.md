@@ -22,6 +22,15 @@ Updated 2026-11-20. “Locally tested” means a test in this repo passed. It do
 - MCP `events/subscribe` against `http://127.0.0.1` only while the test server allows loopback. The task note says the callback success is not proof a live dot received it. An `http://example.com` callback is refused.
 - Remote cancel for Duet and dot returns `unsupported`. The local task can still be marked failed, and the reason says the provider was not stopped.
 
+## Locally tested, added 2026-11-20 after Harry’s main-bot decision
+
+- Simulated main bot creates a Software Engineer project, delegates a task, and the timeline says no Duet or dot was messaged.
+- Chrome, through `playwright-core` 1.49.1, opens one profile directory per project, writes `note.txt`, and saves a PNG. `npm test` includes this. 9 passed, 0 failed, on this Linux machine.
+- The stored label is `local browser, not isolated VM`.
+- A marker file in one profile directory is not in the other.
+- Main-bot MCP tools `list_projects` and `get_task_status` were called from the test. `open_workspace` is the same function as the tested browser run.
+- `docker info` was not available. No container was started.
+
 ## Live-account-tested
 
 None. No Duet account and no dot account were used.

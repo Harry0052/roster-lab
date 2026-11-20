@@ -2,7 +2,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { capabilitiesFor } from "./capabilities.ts";
-import { deliverQueued, handleMcp } from "./mcp.ts";
+import { deliverQueued, handleMainMcp, handleMcp } from "./mcp.ts";
 import { DomainError, type RosterStore } from "./store.ts";
 
 const MAX_BODY = 1_000_000;
@@ -105,6 +105,10 @@ async function api(ctx: Ctx) {
     send(ctx.res, 201, store.createDemo());
     return;
   }
+  if (method === "POST" && url.pathname === "/api/demo/main-bot") {
+    send(ctx.res, 201, await store.createMainBotDemo());
+    return;
+  }
   if (method === "GET" && url.pathname === "/api/workspaces") {
     send(ctx.res, 200, { workspaces: store.listWorkspaces() });
     return;
@@ -140,7 +144,10 @@ async function api(ctx: Ctx) {
   }
   if (parts[0] === "api" && parts[1] === "workspaces" && parts[3] === "projects" && method === "POST") {
     const body = await readJson(req);
-    send(ctx.res, 201, store.createProject(parts[2], stringField(body, "name"), optionalString(body, "summary")));
+    send(ctx.res, 201, store.createProject(parts[2], stringField(body, "name"), optionalString(body, "summary"), {
+      goal: optionalString(body, "goal"),
+      mainBotId: typeof body.mainBotId === "string" ? body.mainBotId : undefined,
+    }));
     return;
   }
   if (parts[0] === "api" && parts[1] === "workspaces" && parts[3] === "employees" && method === "POST") {
@@ -156,6 +163,32 @@ async function api(ctx: Ctx) {
   if (parts[0] === "api" && parts[1] === "workspaces" && parts[3] === "mediated" && method === "POST") {
     const body = await readJson(req);
     send(ctx.res, 201, store.requestMediated(parts[2], typeof body.taskId === "string" ? body.taskId : null, stringField(body, "kind"), stringField(body, "summary")));
+    return;
+  }
+  if (parts[0] === "api" && parts[1] === "workspaces" && parts[3] === "main-bots" && method === "POST") {
+    const body = await readJson(req);
+    send(ctx.res, 201, store.createMainBot(parts[2], stringField(body, "displayName"), optionalString(body, "providerKind") || "simulated"));
+    return;
+  }
+  if (parts[0] === "api" && parts[1] === "main-bots" && parts[3] === "credential" && method === "POST") {
+    send(ctx.res, 201, store.prepareMainCredential(parts[2]));
+    return;
+  }
+  if (parts[0] === "api" && parts[1] === "main-bots" && parts[3] === "delegate" && method === "POST") {
+    const body = await readJson(req);
+    send(ctx.res, 201, store.delegate(parts[2], stringField(body, "projectId"), stringField(body, "title"), optionalString(body, "body")));
+    return;
+  }
+  if (parts[0] === "api" && parts[1] === "projects" && parts[3] === "run" && method === "POST") {
+    const body = await readJson(req);
+    send(ctx.res, 200, await store.runDelegated(parts[2], stringField(body, "taskId")));
+    return;
+  }
+  if (parts[0] === "api" && parts[1] === "projects" && parts[3] === "workspace" && parts[4] === "frame" && method === "GET") {
+    const file = store.framePath(parts[2]);
+    if (!file) throw new DomainError(404, "no_frame", "This project has no browser capture yet.");
+    ctx.res.writeHead(200, { "content-type": "image/png", "cache-control": "no-store", "x-content-type-options": "nosniff" });
+    fs.createReadStream(file).pipe(ctx.res);
     return;
   }
   if (parts[0] === "api" && parts[1] === "projects" && parts.length === 3 && method === "PATCH") {
@@ -261,10 +294,14 @@ async function mcp(ctx: Ctx) {
   if (ctx.req.method !== "POST") throw new DomainError(405, "method", "The MCP endpoint accepts POST.");
   const header = ctx.req.headers.authorization ?? "";
   const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
-  const found = token ? ctx.store.employeeByToken(token) : null;
-  if (!found) throw new DomainError(401, "unauthorized", "This connector credential was missing, revoked, or never issued.");
+  const actor = token ? ctx.store.actorByToken(token) : null;
+  if (!actor) throw new DomainError(401, "unauthorized", "This connector credential was missing, revoked, or never issued.");
   const message = await readJson(ctx.req);
-  const result = await handleMcp(ctx.store, found.employee.id, message as { jsonrpc?: string; id?: unknown; method?: string; params?: Record<string, unknown> }, ctx.allowLoopbackCallbacks, ctx.fetchImpl);
+  const parsed = message as { jsonrpc?: string; id?: unknown; method?: string; params?: Record<string, unknown> };
+  const result =
+    actor.kind === "main"
+      ? await handleMainMcp(ctx.store, actor.mainBotId, parsed)
+      : await handleMcp(ctx.store, actor.employeeId, parsed, ctx.allowLoopbackCallbacks, ctx.fetchImpl);
   send(ctx.res, 200, result);
 }
 

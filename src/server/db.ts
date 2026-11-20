@@ -18,9 +18,25 @@ export function openDatabase(file: string): DatabaseSync {
       workspace_id TEXT NOT NULL,
       name TEXT NOT NULL,
       summary TEXT NOT NULL DEFAULT '',
+      goal TEXT NOT NULL DEFAULT '',
+      main_bot_id TEXT,
+      workspace_kind TEXT NOT NULL DEFAULT 'unopened',
+      workspace_label TEXT NOT NULL DEFAULT '',
+      workspace_endpoint TEXT,
+      frame_path TEXT,
       status TEXT NOT NULL DEFAULT 'active',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS main_bots (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      provider_kind TEXT NOT NULL,
+      note TEXT NOT NULL,
+      secret_id TEXT,
+      last_mcp_call_at TEXT,
+      created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS employees (
       id TEXT PRIMARY KEY,
@@ -122,7 +138,20 @@ export function openDatabase(file: string): DatabaseSync {
       created_at TEXT NOT NULL
     );
   `);
+  ensureColumn(db, "projects", "goal", "goal TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "projects", "main_bot_id", "main_bot_id TEXT");
+  ensureColumn(db, "projects", "workspace_kind", "workspace_kind TEXT NOT NULL DEFAULT 'unopened'");
+  ensureColumn(db, "projects", "workspace_label", "workspace_label TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "projects", "workspace_endpoint", "workspace_endpoint TEXT");
+  ensureColumn(db, "projects", "frame_path", "frame_path TEXT");
   return db;
+}
+
+function ensureColumn(db: DatabaseSync, table: string, name: string, definition: string) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!columns.some((column) => column.name === name)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+  }
 }
 
 export function transaction<T>(db: DatabaseSync, fn: () => T): T {

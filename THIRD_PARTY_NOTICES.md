@@ -13,6 +13,7 @@ Original Roster Lab code is MIT, copyright Harry Malhi. The packages below are i
 | tsx | Run TypeScript | MIT |
 | @biomejs/biome | Lint | MIT OR Apache-2.0 |
 | @types/react, @types/react-dom, @types/node | Types | MIT |
+| playwright-core 1.49.1 | Local Chrome profiles and screenshots | Apache-2.0, from this install’s package.json |
 
 Node.js supplies `node:sqlite`. It is part of Node, not an npm dependency. Node 22 marks it experimental.
 

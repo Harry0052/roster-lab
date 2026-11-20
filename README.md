@@ -19,6 +19,16 @@ Working name only. Check it before any public launch.
 
 A simulated person is a row in the database and a function in this process. There is no browser, no Duet, no dot, and no second computer. The interface, the timeline, and the tests say so.
 
+## One command
+
+Google Chrome is required. Docker Desktop is optional and is not used for the workspace that was tested here. Node.js 22.13 or newer:
+
+```bash
+bash scripts/setup.sh
+```
+
+Then open [http://127.0.0.1:4318](http://127.0.0.1:4318) and choose **Main bot demo**. The Software Engineer project should already show a completed task and a browser capture labeled **local browser, not isolated VM**.
+
 ## Run on a Mac
 
 Tested in this session on Linux, not on a Mac. The commands are the same if Node.js 22.13 or newer is installed. Node’s built-in SQLite is experimental and prints a warning. That warning is expected.
@@ -63,7 +73,10 @@ The server refuses to listen on anything except localhost unless you set `ROSTER
 
 | Provider | Status in this build |
 | --- | --- |
-| Simulated | Locally tested. Labeled Simulated. |
+| Simulated main bot | Locally tested. Delegates inside this app. It is not a Duet or a dot. |
+| Project browser profile | Locally tested with Chrome. Labeled local browser, not isolated VM. |
+| Container or VM desktop | Not run. Docker was not installed in the session that built this. |
+| Simulated employees | Locally tested. Labeled Simulated. |
 | Claude Duet | Not live-tested. No creation, wake, or remote cancel. Custom MCP on Duet itself is unverified. |
 | OpenAI dot | Not live-tested. MCP Events are documented for dots. This server can speak that shape to a test callback. OAuth for the ChatGPT plugin form is not implemented, so a real dot is not connected. |
 

@@ -14,11 +14,13 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit && biome check src tests",
-    "test": "node --experimental-sqlite --import tsx --test tests/*.test.ts"
+    "test": "node --experimental-sqlite --import tsx --test tests/*.test.ts",
+    "setup": "bash scripts/setup.sh"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "playwright-core": "^1.49.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "tailwind-merge": "^3.3.1"

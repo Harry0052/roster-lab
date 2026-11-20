@@ -21,6 +21,7 @@ async function start(now = () => new Date("2026-11-20T12:00:00.000Z")) {
     now,
     allowLoopbackCallbacks: true,
     fetchImpl: fetch,
+    dataDir: home,
   });
   const server = http.createServer(createHandler({ store, port: 9, dataDir: home, allowLoopbackCallbacks: true }));
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));

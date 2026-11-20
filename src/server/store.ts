@@ -5,6 +5,9 @@ import type { ProviderKind, TaskState } from "../shared/labels.ts";
 import { capabilitiesFor, remoteCancel } from "./capabilities.ts";
 import { transaction } from "./db.ts";
 import { redact, type SecretStore } from "./secrets.ts";
+import { captureInProfile, LOCAL_BROWSER_LABEL, workPage } from "./workspace-runner.ts";
+import fs from "node:fs";
+import path from "node:path";
 
 const CLAIM_MS = 15 * 60 * 1000;
 const APPROVAL_MS = 24 * 60 * 60 * 1000;
@@ -28,6 +31,7 @@ export type Deps = {
   now: () => Date;
   allowLoopbackCallbacks: boolean;
   fetchImpl: typeof fetch;
+  dataDir: string;
 };
 
 type Row = Record<string, unknown>;
@@ -95,6 +99,10 @@ export class RosterStore {
       .prepare(`SELECT secret_id FROM subscriptions WHERE employee_id IN (SELECT id FROM employees WHERE workspace_id = ?)`)
       .all(id)
       .map((row) => String(row.secret_id));
+    const mainSecrets = this.deps.db
+      .prepare("SELECT secret_id FROM main_bots WHERE workspace_id = ? AND secret_id IS NOT NULL")
+      .all(id)
+      .map((row) => String(row.secret_id));
     transaction(this.deps.db, () => {
       for (const table of ["attachments", "task_events", "approvals", "tasks", "audit"]) {
         this.deps.db.prepare(`DELETE FROM ${table} WHERE workspace_id = ?`).run(id);
@@ -109,24 +117,179 @@ export class RosterStore {
         .prepare(`DELETE FROM computers WHERE employee_id IN (SELECT id FROM employees WHERE workspace_id = ?)`)
         .run(id);
       this.deps.db.prepare("DELETE FROM employees WHERE workspace_id = ?").run(id);
+      this.deps.db.prepare("DELETE FROM main_bots WHERE workspace_id = ?").run(id);
       this.deps.db.prepare("DELETE FROM projects WHERE workspace_id = ?").run(id);
       this.deps.db.prepare("DELETE FROM workspaces WHERE id = ?").run(id);
     });
-    for (const secretId of [...secretIds, ...subSecrets]) this.deps.secrets.delete(secretId);
+    for (const secretId of [...secretIds, ...subSecrets, ...mainSecrets]) this.deps.secrets.delete(secretId);
     return { deleted: true, approval: null };
   }
 
-  createProject(workspaceId: string, name: string, summary: string) {
+  createProject(workspaceId: string, name: string, summary: string, extra?: { goal?: string; mainBotId?: string }) {
     this.workspace(workspaceId);
     const id = idFor("pr");
     const now = this.nowIso();
+    const cleanName = requiredText(name, "Project name", 120);
+    const goal = text(extra?.goal ?? "", 4000);
+    const mainBotId = extra?.mainBotId ?? null;
+    if (mainBotId) {
+      const bot = this.mainBot(mainBotId);
+      if (bot.workspaceId !== workspaceId) throw new DomainError(403, "cross_workspace", "That main bot is in another company.");
+    }
     this.deps.db
       .prepare(
-        `INSERT INTO projects (id, workspace_id, name, summary, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?)`,
+        `INSERT INTO projects (id, workspace_id, name, summary, goal, main_bot_id, workspace_kind, workspace_label, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'unopened', '', 'active', ?, ?)`,
       )
-      .run(id, workspaceId, requiredText(name, "Project name", 120), text(summary, 4000), now, now);
-    this.audit(workspaceId, "project.created", `Created project “${requiredText(name, "Project name", 120)}”.`);
+      .run(id, workspaceId, cleanName, text(summary, 4000), goal, mainBotId, now, now);
+    this.audit(workspaceId, "project.created", `Created project “${cleanName}”. A project is not a provider computer.`);
     return this.project(id);
+  }
+
+  createMainBot(workspaceId: string, displayName: string, providerKind = "simulated") {
+    this.workspace(workspaceId);
+    if (!["simulated", "claude-duet", "openai-dot"].includes(providerKind)) {
+      throw new DomainError(400, "bad_provider", "A main bot can be Simulated, Claude Duet, or OpenAI dot.");
+    }
+    const id = idFor("mb");
+    const now = this.nowIso();
+    const note =
+      providerKind === "simulated"
+        ? "Simulated main bot. It is not a Claude Duet or an OpenAI dot, and it has not been shown to wake one."
+        : "Not connected. Saving this choice does not create a Duet or a dot. Live calls are not tested.";
+    this.deps.db
+      .prepare(
+        `INSERT INTO main_bots (id, workspace_id, display_name, provider_kind, note, secret_id, last_mcp_call_at, created_at)
+         VALUES (?, ?, ?, ?, ?, NULL, NULL, ?)`,
+      )
+      .run(id, workspaceId, requiredText(displayName, "Main bot name", 120), providerKind, note, now);
+    this.audit(workspaceId, "main_bot.created", `Added main bot “${displayName}” as ${providerKind}.`);
+    return this.mainBot(id);
+  }
+
+  mainBot(id: string) {
+    const row = this.one("SELECT * FROM main_bots WHERE id = ?", id);
+    if (!row) throw new DomainError(404, "not_found", "That main bot is not on this computer.");
+    return presentMainBot(row);
+  }
+
+  mainBots(workspaceId: string) {
+    return this.deps.db.prepare("SELECT * FROM main_bots WHERE workspace_id = ? ORDER BY created_at ASC").all(workspaceId).map(presentMainBot);
+  }
+
+  prepareMainCredential(id: string) {
+    const bot = this.mainBot(id);
+    const token = `rlb_${crypto.randomBytes(16).toString("hex")}`;
+    const secretId = idFor("sec");
+    const now = this.nowIso();
+    const previousRow = this.one("SELECT secret_id FROM main_bots WHERE id = ?", id);
+    const previous = previousRow?.secret_id ? String(previousRow.secret_id) : null;
+    this.deps.secrets.put(secretId, "main_bot_bearer", token, now);
+    this.deps.db.prepare("UPDATE main_bots SET secret_id = ? WHERE id = ?").run(secretId, id);
+    if (previous) this.deps.secrets.delete(previous);
+    this.audit(bot.workspaceId, "main_bot.credential", `Stored a connector credential for ${bot.displayName}. The token is not in this log.`);
+    return { mainBot: this.mainBot(id), bearerToken: token };
+  }
+
+  delegate(mainBotId: string, projectId: string, title: string, body: string) {
+    const bot = this.mainBot(mainBotId);
+    const project = this.project(projectId);
+    if (project.workspaceId !== bot.workspaceId) throw new DomainError(403, "cross_workspace", "That project is in another company.");
+    if (project.mainBotId && project.mainBotId !== bot.id) {
+      throw new DomainError(403, "wrong_main_bot", "That project belongs to another main bot.");
+    }
+    const task = this.createTask(projectId, { title, body });
+    const now = this.nowIso();
+    transaction(this.deps.db, () => {
+      this.deps.db.prepare("UPDATE tasks SET state = 'queued', updated_at = ? WHERE id = ?").run(now, task.id);
+      this.event(
+        task.id,
+        project.workspaceId,
+        "main_bot",
+        bot.id,
+        "draft",
+        "queued",
+        `Delegated by ${bot.displayName} inside Roster Lab. No Duet or dot was messaged.`,
+      );
+    });
+    this.audit(project.workspaceId, "task.delegated", `${bot.displayName} delegated “${task.title}” to ${project.name}.`);
+    return this.task(task.id);
+  }
+
+  async runDelegated(projectId: string, taskId: string) {
+    const project = this.project(projectId);
+    const task = this.task(taskId);
+    if (task.projectId !== project.id) throw new DomainError(403, "wrong_project", "That task is not in this project.");
+    if (task.state === "completed") return { task, project, alreadyDone: true };
+    const workDir = path.join(this.deps.dataDir, "project-files", project.id);
+    const profileDir = path.join(this.deps.dataDir, "browser-profiles", project.id);
+    const framePath = path.join(this.deps.dataDir, "frames", `${project.id}.png`);
+    fs.mkdirSync(workDir, { recursive: true });
+    const note = [
+      `Project: ${project.name}`,
+      `Task: ${task.title}`,
+      "Written by the Roster Lab project runner on this computer.",
+      `${LOCAL_BROWSER_LABEL}.`,
+      "Not a Claude Duet or OpenAI dot computer.",
+    ].join("\n");
+    fs.writeFileSync(path.join(workDir, "note.txt"), note);
+    const now = this.nowIso();
+    this.deps.db.prepare("UPDATE tasks SET state = 'in_progress', updated_at = ? WHERE id = ?").run(now, task.id);
+    this.event(task.id, project.workspaceId, "workspace", project.id, task.state, "in_progress", "Opening a local browser profile. This is not an isolated VM.");
+    try {
+      await captureInProfile({ profileDir, screenshotPath: framePath, html: workPage(project.name, task.title, note) });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The browser did not start.";
+      this.event(task.id, project.workspaceId, "workspace", project.id, "in_progress", "failed", message);
+      this.deps.db.prepare("UPDATE tasks SET state = 'failed', updated_at = ? WHERE id = ?").run(this.nowIso(), task.id);
+      throw new DomainError(500, "workspace_failed", message);
+    }
+    const endpoint = `/api/projects/${project.id}/workspace/frame`;
+    const result = `Completed in a ${LOCAL_BROWSER_LABEL}. The note is in this project's files. The capture is on the project page. No provider computer was used.`;
+    const finished = this.nowIso();
+    transaction(this.deps.db, () => {
+      this.deps.db
+        .prepare(
+          `UPDATE tasks SET state = 'completed', result_body = ?, result_label = 'local_browser', result_key = ?, updated_at = ? WHERE id = ?`,
+        )
+        .run(result, `local-${task.id}`, finished, task.id);
+      this.deps.db
+        .prepare(
+          `UPDATE projects SET workspace_kind = 'local_browser', workspace_label = ?, workspace_endpoint = ?, frame_path = ?, updated_at = ? WHERE id = ?`,
+        )
+        .run(LOCAL_BROWSER_LABEL, endpoint, framePath, finished, project.id);
+      this.event(task.id, project.workspaceId, "workspace", project.id, "in_progress", "completed", result);
+    });
+    this.audit(project.workspaceId, "workspace.opened", `${project.name}: ${LOCAL_BROWSER_LABEL}. Endpoint ${endpoint}.`);
+    return { task: this.task(task.id), project: this.project(project.id), alreadyDone: false };
+  }
+
+  framePath(projectId: string): string | null {
+    const row = this.one("SELECT frame_path FROM projects WHERE id = ?", projectId);
+    if (!row?.frame_path) return null;
+    const file = String(row.frame_path);
+    const root = path.resolve(this.deps.dataDir, "frames");
+    const resolved = path.resolve(file);
+    if (!resolved.startsWith(root + path.sep) && resolved !== root) return null;
+    if (!fs.existsSync(resolved)) return null;
+    return resolved;
+  }
+
+  async createMainBotDemo() {
+    const workspace = this.createWorkspace("Main bot demo");
+    const bot = this.createMainBot(workspace.id, "Main bot (Simulated)", "simulated");
+    const project = this.createProject(workspace.id, "Software Engineer", "Sub-bot that works in its own browser profile.", {
+      goal: "Write a note in this project's browser profile and leave a capture.",
+      mainBotId: bot.id,
+    });
+    const task = this.delegate(
+      bot.id,
+      project.id,
+      "Write the workspace note",
+      "Write note.txt and show it in the Software Engineer browser profile.",
+    );
+    await this.runDelegated(project.id, task.id);
+    return this.snapshot(workspace.id);
   }
 
   updateProject(id: string, input: { name?: string; summary?: string; status?: string }) {
@@ -586,6 +749,22 @@ export class RosterStore {
       .map((row) => this.employee(String(row.id)));
   }
 
+  actorByToken(token: string): { kind: "employee"; employeeId: string } | { kind: "main"; mainBotId: string } | null {
+    const employee = this.employeeByToken(token);
+    if (employee) return { kind: "employee", employeeId: employee.employee.id };
+    if (!token.startsWith("rlb_")) return null;
+    const bots = this.deps.db.prepare("SELECT id, secret_id FROM main_bots WHERE secret_id IS NOT NULL").all();
+    for (const bot of bots) {
+      const secretId = bot.secret_id ? String(bot.secret_id) : "";
+      if (secretId && this.deps.secrets.get(secretId) === token) return { kind: "main", mainBotId: String(bot.id) };
+    }
+    return null;
+  }
+
+  noteMainCall(mainBotId: string) {
+    this.deps.db.prepare("UPDATE main_bots SET last_mcp_call_at = ? WHERE id = ?").run(this.nowIso(), mainBotId);
+  }
+
   employeeByToken(token: string) {
     if (!token.startsWith("rlb_")) return null;
     const connections = this.deps.db.prepare("SELECT * FROM connections WHERE secret_id IS NOT NULL AND revoked_at IS NULL").all();
@@ -727,6 +906,7 @@ export class RosterStore {
       notice: "This export has no connector tokens and no webhook secrets.",
       workspace: snapshot.workspace,
       projects: snapshot.projects,
+      mainBots: snapshot.mainBots.map((bot) => ({ ...bot, credentialPrepared: bot.credentialPrepared })),
       employees: snapshot.employees.map((employee) => ({
         ...employee,
         connection: employee.connection ? { ...employee.connection, secretId: undefined } : null,
@@ -747,6 +927,7 @@ export class RosterStore {
     return {
       workspace,
       projects: this.projects(id),
+      mainBots: this.mainBots(id),
       employees: this.employees(id),
       tasks,
       approvals,
@@ -971,9 +1152,28 @@ function presentProject(row: Row) {
     workspaceId: String(row.workspace_id),
     name: String(row.name),
     summary: String(row.summary),
+    goal: String(row.goal ?? ""),
+    mainBotId: row.main_bot_id ? String(row.main_bot_id) : null,
+    workspaceKind: String(row.workspace_kind ?? "unopened"),
+    workspaceLabel: String(row.workspace_label ?? ""),
+    workspaceEndpoint: row.workspace_endpoint ? String(row.workspace_endpoint) : null,
+    hasFrame: Boolean(row.frame_path),
     status: String(row.status),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
+  };
+}
+
+function presentMainBot(row: Row) {
+  return {
+    id: String(row.id),
+    workspaceId: String(row.workspace_id),
+    displayName: String(row.display_name),
+    providerKind: String(row.provider_kind),
+    note: String(row.note),
+    credentialPrepared: Boolean(row.secret_id),
+    lastMcpCallAt: row.last_mcp_call_at ? String(row.last_mcp_call_at) : null,
+    createdAt: String(row.created_at),
   };
 }
 

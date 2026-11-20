@@ -51,6 +51,93 @@ const TOOLS = [
   },
 ];
 
+const MAIN_TOOLS = [
+  {
+    name: "list_projects",
+    description: "List projects this main bot can delegate to. A project is not a provider computer.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "delegate_task",
+    description: "Queue a task on a project inside Roster Lab. This does not message Claude Duet or an OpenAI dot.",
+    inputSchema: {
+      type: "object",
+      properties: { project_id: { type: "string" }, title: { type: "string" }, body: { type: "string" } },
+      required: ["project_id", "title"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "open_workspace",
+    description: "Open the project's local browser profile, write its note, and store a capture. This is not an isolated VM unless the label says so.",
+    inputSchema: {
+      type: "object",
+      properties: { project_id: { type: "string" }, task_id: { type: "string" } },
+      required: ["project_id", "task_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_task_status",
+    description: "Read one task's state. The state is what Roster Lab last stored, not a live provider.",
+    inputSchema: {
+      type: "object",
+      properties: { task_id: { type: "string" } },
+      required: ["task_id"],
+      additionalProperties: false,
+    },
+  },
+];
+
+export async function handleMainMcp(store: RosterStore, mainBotId: string, message: Rpc) {
+  if (!message || message.jsonrpc !== "2.0" || typeof message.method !== "string") {
+    return rpcError(message?.id ?? null, -32600, "Invalid request");
+  }
+  const id = message.id ?? null;
+  try {
+    store.noteMainCall(mainBotId);
+    const params = message.params ?? {};
+    const bot = store.mainBot(mainBotId);
+    switch (message.method) {
+      case "initialize":
+        return rpc(id, {
+          protocolVersion: "2025-03-26",
+          capabilities: { tools: {} },
+          serverInfo: { name: "roster-lab", version: "0.1.0" },
+          instructions:
+            "This credential is the main bot in Roster Lab. Tools change this app only. Calling them does not prove you are Claude Duet or an OpenAI dot.",
+        });
+      case "tools/list":
+        return rpc(id, { tools: MAIN_TOOLS });
+      case "tools/call":
+        return rpc(id, { content: [{ type: "text", text: JSON.stringify(await callMainTool(store, bot.id, bot.workspaceId, params)) }], isError: false });
+      default:
+        return rpcError(id, -32601, `Unsupported method ${message.method}`);
+    }
+  } catch (error) {
+    if (error instanceof DomainError) return rpcError(id, -32000, error.message);
+    return rpcError(id, -32603, "Internal error");
+  }
+}
+
+async function callMainTool(store: RosterStore, mainBotId: string, workspaceId: string, params: Record<string, unknown>) {
+  const name = params.name;
+  const args = (params.arguments ?? {}) as Record<string, unknown>;
+  if (name === "list_projects") {
+    return store.projects(workspaceId).filter((project) => !project.mainBotId || project.mainBotId === mainBotId);
+  }
+  if (name === "delegate_task") {
+    return store.delegate(mainBotId, stringArg(args.project_id), stringArg(args.title), typeof args.body === "string" ? args.body : "");
+  }
+  if (name === "open_workspace") return store.runDelegated(stringArg(args.project_id), stringArg(args.task_id));
+  if (name === "get_task_status") {
+    const task = store.task(stringArg(args.task_id));
+    if (task.workspaceId !== workspaceId) throw new DomainError(403, "cross_workspace", "That task is in another company.");
+    return { id: task.id, state: task.state, resultLabel: task.resultLabel, title: task.title };
+  }
+  throw new DomainError(400, "unknown_tool", "That tool is not on this main bot.");
+}
+
 export async function handleMcp(store: RosterStore, employeeId: string, message: Rpc, allowLoopback: boolean, fetchImpl: typeof fetch) {
   if (!message || message.jsonrpc !== "2.0" || typeof message.method !== "string") {
     return rpcError(message?.id ?? null, -32600, "Invalid request");
